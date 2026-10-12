@@ -1,0 +1,13 @@
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+build/
+dist/
+data/
+EX3-editor-backups/
+*.SC2Bank
+*.sc2bank
+*.log
+*.exe
+*.zip
