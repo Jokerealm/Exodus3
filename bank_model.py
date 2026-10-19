@@ -12,7 +12,7 @@ from skin_catalog import SKIN_NAMES, FREE_SKINS
 
 HANDLE_RE=re.compile(r'\d+-S2-\d+-\d+')
 MAX_MEDAL=2_706_911
-RESOURCE_NAMES=[('钒','Vanadium'),('铬','Chromium'),('钛','Titanium'),('钨','Tungsten'),('金','Gold'),('铌','Niobium'),('锇','Osmium'),('铱','Iridium'),('钯','Palladium'),('钕','Neodymium'),('钷','Promethium'),('铽','Terbium')]
+RESOURCE_NAMES=[('钒','Vanadium'),('铬','Chromium'),('钛','Titanium'),('钨','Tungsten'),('金','Gold'),('铌','Niobium'),('锇','Osmium'),('铱','Iridium'),('钯','Palladium'),('钕','Neodymium'),('钷','Promethium'),('铽','Terbium'),('柚','Uranium'),('铪','Hafnium'),('钼','Molybdenum')]
 CURRENCY_NAMES=['信用点','悬赏凭证','神器碎片','勋章显示副本','普通样本','稀有样本','超级样本']
 EQUIPMENT={'W':('武器',26,9,'WS'),'PA':('动力装甲',18,9,'PAS'),'TO':('工具',7,6,None),'T':('炮塔',38,9,'TS'),'S':('建筑',36,9,'SS')}
 REPLACEMENTS=[('1','on'),('2','tw'),('6','si'),('7','se'),('8','ei3'),('9','ni'),('0','ze'),('3','th'),('4','fo6'),('5','fi'),(' ','nu')]
@@ -164,13 +164,17 @@ class BankDocument:
             self.set_currencies(currencies)
 
     def set_resources(self,values):
-        if len(values)!=len(self.resources):raise ValueError('不能丢弃或增加未知版本的资源字段')
-        if any(not 0<=x<=90_000_000 for x in values[:12]):raise ValueError('资源数量必须在0–90,000,000之间')
+        # The test map writes either 12 (solo) or 15 (multiplayer) values.
+        # Explicitly enabling its minerals may extend a 12-value bank to 15.
+        if len(values)!=len(self.resources) and (len(self.resources),len(values))!=(12,15):
+            raise ValueError('仅支持保留原资源字段数量，或为12项存档补齐test版的3种矿物')
+        if any(not 0<=x<=90_000_000 for x in values[:len(RESOURCE_NAMES)]):raise ValueError('资源数量必须在0–90,000,000之间')
         if values!=self.resources:
             old_tokens=self.value('R','R')[1].split()
-            tokens=[encrypt(n) if n!=old else old_tokens[i] for i,(n,old) in enumerate(zip(values,self.resources))]
+            tokens=[old_tokens[i] if i<len(self.resources) and n==self.resources[i] else encrypt(n) for i,n in enumerate(values)]
             self.set_value('R','R','string',' '.join(tokens)+' ');self.resources=list(values)
-            self.paired('RS','RS',i32(sum(values[:12])))
+            # Match the map's writer: checksum covers the serialized resources.
+            self.paired('RS','RS',i32(sum(values)))
 
     def set_currencies(self,values):
         if len(values)!=len(self.currencies):raise ValueError('不能丢弃未知货币字段')

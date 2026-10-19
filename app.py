@@ -102,7 +102,7 @@ def parse_integer(widget,name,maximum=2_147_483_647,minimum=0):
 class EditorWindow(QMainWindow):
     def __init__(self,state_dir=None):
         super().__init__();self.document=None;self.loading=False;self.extra_edits={};self.preview_document=None
-        self.setWindowIcon(QIcon(str(ROOT/'assets'/'icon.ico')));self.setWindowTitle('Exodus 3 存档修改器 v1.2 · Bank Editor');self.resize(1320,920);self.setMinimumSize(1040,790)
+        self.setWindowIcon(QIcon(str(ROOT/'assets'/'icon.ico')));self.setWindowTitle('Exodus 3 存档修改器 v1.3 · Bank Editor');self.resize(1320,920);self.setMinimumSize(1040,790)
         self.setAcceptDrops(True)
         self.state_dir=Path(state_dir) if state_dir else (Path(sys.executable).parent if getattr(sys,'frozen',False) else Path(__file__).parent)/'data'
         self.draft_path=self.state_dir/'draft.json'
@@ -187,8 +187,17 @@ class EditorWindow(QMainWindow):
         for i,(ch,en) in enumerate(RESOURCE_NAMES):
             text=label(f'<span style="color:#efeeb0">{ch}</span>  {en}:');rg.addWidget(text,i,0)
             edit=integer_edit(90_000_000);edit.setText('0');edit.textChanged.connect(self.schedule);rg.addWidget(edit,i,1);self.resource_edits.append(edit)
-        actions=QHBoxLayout();actions.addWidget(button('全部设为…',self.set_all_resources));actions.addWidget(label('0 – 90,000,000','muted'));rg.addLayout(actions,12,0,1,2)
-        rg.setRowStretch(13,1);columns.addWidget(resources,4)
+        self.test_resources=QCheckBox('编辑 test 新增矿物（柚 / 铪 / 钼）')
+        self.test_resources.setToolTip('12项存档需勾选后补齐3项；已有矿物始终保留。柚矿是地图中Uranium的显示名称。test地图单人局保存时仅写前12项，新增矿物需在多人局验证。')
+        self.test_resources.toggled.connect(self.toggle_test_resources);rg.addWidget(self.test_resources,len(RESOURCE_NAMES),0,1,2)
+        actions=QHBoxLayout();actions.addWidget(button('全部设为…',self.set_all_resources));actions.addWidget(label('0 – 90,000,000','muted'));rg.addLayout(actions,len(RESOURCE_NAMES)+1,0,1,2)
+        rg.setRowStretch(len(RESOURCE_NAMES)+2,1);columns.addWidget(resources,4)
+
+    def toggle_test_resources(self,*args):
+        count=len(self.document.resources) if self.document else 0
+        for i,edit in enumerate(self.resource_edits):
+            if i>=12:edit.setEnabled(i<count or (count==12 and self.test_resources.isChecked()))
+        self.schedule()
 
     def create_skin_tab(self,parent):
         self.skin_error=None;self.skin_items={};self.skin_loaded=False
@@ -322,7 +331,9 @@ class EditorWindow(QMainWindow):
         state=doc.medal_matches();self.medal_status.setText('原存档勋章校验一致' if state else ('原存档校验不匹配，可勾选重新生成' if state is False else '此存档没有公司勋章字段'))
         self.medal_status.setStyleSheet('color:#91caa8;' if state else 'color:#d9bd81;')
         for i,edit in enumerate(self.resource_edits):
-            edit.setEnabled(i<len(doc.resources));edit.setText(str(doc.resources[i]) if i<len(doc.resources) else '');edit.setToolTip('随存档保留' if i<len(doc.resources) else '此版本没有该资源字段')
+            edit.setEnabled(i<len(doc.resources));edit.setText(str(doc.resources[i]) if i<len(doc.resources) else '0');edit.setToolTip('随存档保留' if i<len(doc.resources) else '勾选test新增矿物后可编辑' if len(doc.resources)==12 else '此版本没有该资源字段')
+        self.test_resources.setChecked(len(doc.resources)>12);self.test_resources.setEnabled(len(doc.resources)==12)
+        self.toggle_test_resources()
         for i,edit in self.currency_edits.items():edit.setEnabled(i<len(doc.currencies));edit.setText(str(doc.currencies[i]) if i<len(doc.currencies) else '')
         self.upgrade.setChecked(False);self.upgrade.setEnabled(len(doc.resources)==12)
         self.company_field.clear()
@@ -338,6 +349,7 @@ class EditorWindow(QMainWindow):
         if self.document.handle and handle!=self.document.handle:raise ValueError('玩家ID必须与原存档一致')
         doc.handle=handle;doc.author=self.author.text().strip();doc.require_handle()
         resources=list(doc.resources)
+        if len(resources)==12 and self.test_resources.isChecked():resources.extend([0,0,0])
         for i,w in enumerate(self.resource_edits):
             if i<len(resources):resources[i]=parse_integer(w,RESOURCE_NAMES[i][0],90_000_000)
         doc.set_resources(resources)
@@ -451,7 +463,7 @@ class EditorWindow(QMainWindow):
     def save_draft(self):
         if not self.document or not self.document.path:return
         state={'path':str(self.document.path),'source_sha256':self.document.original_hash,'handle':self.player.text(),'author':self.author.text(),'medal':self.medal.text(),'repair':self.repair.isChecked(),
-               'resources':[w.text() for w in self.resource_edits],'currencies':{str(i):w.text() for i,w in self.currency_edits.items()},
+               'resources':[w.text() for w in self.resource_edits],'test_resources':self.test_resources.isChecked(),'currencies':{str(i):w.text() for i,w in self.currency_edits.items()},
                'upgrade':self.upgrade.isChecked(),'extra_edits':self.extra_edits,
                'skins':sorted(self.selected_skins()) if self.skin_loaded else None,'skin_equipped':self.skin_current.currentData() if self.skin_loaded else None,'skin_silent':self.skin_silent.isChecked()}
         try:
@@ -469,6 +481,7 @@ class EditorWindow(QMainWindow):
             if doc.original_hash!=state['source_sha256']:raise ValueError('原始存档已改变，不能直接恢复旧草稿；请重新载入文件')
             self.loading=True;self.load_document(doc);self.loading=True
             self.player.setText(state.get('handle',doc.handle));self.author.setText(state.get('author',doc.author));self.medal.setText(state['medal']);self.repair.setChecked(state['repair'])
+            self.test_resources.setChecked(len(doc.resources)>12 or (len(doc.resources)==12 and state.get('test_resources',False)))
             for w,value in zip(self.resource_edits,state['resources']):w.setText(value)
             for i,w in self.currency_edits.items():w.setText(state['currencies'].get(str(i),w.text()))
             self.upgrade.setChecked(state.get('upgrade',False));self.extra_edits={k:int(v) for k,v in state['extra_edits'].items()}
@@ -522,7 +535,7 @@ class EditorWindow(QMainWindow):
     def error(self,message):QMessageBox.warning(self,'无法完成操作',message)
 
     def help(self):
-        QMessageBox.information(self,'使用帮助','1. 点击“账号 / 存档”或拖入 EX3Data.SC2Bank。\n2. 修改勋章、12种资源、货币、装备或人物皮肤。\n3. 在“修改预览”核对，再导出副本或备份并修改。\n\n自动暂存只保存编辑器草稿，不会自动写入游戏存档。\n每次保存都会备份原内容，并保留其他字段。\n\n勋章与汇总校验已按提取的地图源码生成；新数值仍需在游戏中验证。\n“更多字段”可修改公司区块其他整数，并查看全部字段。\n\n背景参考：DarthVan / StarCraft2-Bank-Restorer。')
+        QMessageBox.information(self,'使用帮助','1. 点击“账号 / 存档”或拖入 EX3Data.SC2Bank。\n2. 修改勋章、最多15种资源、货币、装备或人物皮肤。12项存档可勾选test新增矿物补齐柚、铪、钼。\n3. 在“修改预览”核对，再导出副本或备份并修改。\n\n自动暂存只保存编辑器草稿，不会自动写入游戏存档。\n每次保存都会备份原内容，并保留其他字段。\n\n勋章与汇总校验已按提取的地图源码生成；新数值仍需在游戏中验证。\n“更多字段”可修改公司区块其他整数，并查看全部字段。\n\n背景参考：DarthVan / StarCraft2-Bank-Restorer。')
 
     def closeEvent(self,event):
         if self.document:
